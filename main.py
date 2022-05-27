@@ -7,7 +7,7 @@ import telebot
 
 API_TOKEN = '5302840148:AAGtGfjfQZWbwRn0mqPrv_rEqRhK9XEiarg'
 
-WEBHOOK_HOST = '<ip/host where the bot is running>'
+WEBHOOK_HOST = '130.211.226.27'
 WEBHOOK_PORT = 8443  # 443, 80, 88 or 8443 (port need to be 'open')
 WEBHOOK_LISTEN = '0.0.0.0'  # In some VPS you may need to put here the IP addr
 
