@@ -1,7 +1,12 @@
-import logging
-import ssl
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-from aiohttp import web
+# This is a simple echo bot using decorators and webhook with CherryPy
+# It echoes any incoming text messages and does not use the polling method.
+
+import logging
+
+import cherrypy
 
 import telebot
 
@@ -12,7 +17,7 @@ WEBHOOK_PORT = 8443  # 443, 80, 88 or 8443 (port need to be 'open')
 WEBHOOK_LISTEN = '0.0.0.0'  # In some VPS you may need to put here the IP addr
 
 WEBHOOK_SSL_CERT = '../url_cert.pem'  # Path to the ssl certificate
-WEBHOOK_SSL_PRIV = '../url_pkey.pem'  # Path to the ssl private key
+WEBHOOK_SSL_PRIV = '../url_private.key'  # Path to the ssl private key
 
 # Quick'n'dirty SSL certificate generation:
 #
@@ -22,29 +27,29 @@ WEBHOOK_SSL_PRIV = '../url_pkey.pem'  # Path to the ssl private key
 # When asked for "Common Name (e.g. server FQDN or YOUR name)" you should reply
 # with the same value in you put in WEBHOOK_HOST
 
-WEBHOOK_URL_BASE = "https://{}:{}".format(WEBHOOK_HOST, WEBHOOK_PORT)
-WEBHOOK_URL_PATH = "/{}/".format(API_TOKEN)
+WEBHOOK_URL_BASE = "https://%s:%s" % (WEBHOOK_HOST, WEBHOOK_PORT)
+WEBHOOK_URL_PATH = "/%s/" % (API_TOKEN)
 
 logger = telebot.logger
 telebot.logger.setLevel(logging.INFO)
 
 bot = telebot.TeleBot(API_TOKEN)
 
-app = web.Application()
 
-
-# Process webhook calls
-async def handle(request):
-    if request.match_info.get('token') == bot.token:
-        request_body_dict = await request.json()
-        update = telebot.types.Update.de_json(request_body_dict)
-        bot.process_new_updates([update])
-        return web.Response()
-    else:
-        return web.Response(status=403)
-
-
-app.router.add_post('/{token}/', handle)
+# WebhookServer, process webhook calls
+class WebhookServer(object):
+    @cherrypy.expose
+    def index(self):
+        if 'content-length' in cherrypy.request.headers and \
+           'content-type' in cherrypy.request.headers and \
+           cherrypy.request.headers['content-type'] == 'application/json':
+            length = int(cherrypy.request.headers['content-length'])
+            json_string = cherrypy.request.body.read(length).decode("utf-8")
+            update = telebot.types.Update.de_json(json_string)
+            bot.process_new_updates([update])
+            return ''
+        else:
+            raise cherrypy.HTTPError(403)
 
 
 # Handle '/start' and '/help'
@@ -68,14 +73,18 @@ bot.remove_webhook()
 bot.set_webhook(url=WEBHOOK_URL_BASE + WEBHOOK_URL_PATH,
                 certificate=open(WEBHOOK_SSL_CERT, 'r'))
 
-# Build ssl context
-context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-context.load_cert_chain(WEBHOOK_SSL_CERT, WEBHOOK_SSL_PRIV)
+# Disable CherryPy requests log
+access_log = cherrypy.log.access_log
+for handler in tuple(access_log.handlers):
+    access_log.removeHandler(handler)
 
-# Start aiohttp server
-web.run_app(
-    app,
-    host=WEBHOOK_LISTEN,
-    port=WEBHOOK_PORT,
-    ssl_context=context,
-)
+# Start cherrypy server
+cherrypy.config.update({
+    'server.socket_host'    : WEBHOOK_LISTEN,
+    'server.socket_port'    : WEBHOOK_PORT,
+    'server.ssl_module'     : 'builtin',
+    'server.ssl_certificate': WEBHOOK_SSL_CERT,
+    'server.ssl_private_key': WEBHOOK_SSL_PRIV
+})
+
+cherrypy.quickstart(WebhookServer(), WEBHOOK_URL_PATH, {'/': {}})
